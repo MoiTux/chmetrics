@@ -68,7 +68,7 @@ func main() {
 		return
 	}
 
-	err = UpdateSheetChart(ctx, sheetsService, spreadsheetID, hourlyChartID, hourlySheetID, row)
+	err = UpdateHouryChart(ctx, sheetsService, spreadsheetID, hourlyChartID, hourlySheetID, row+1)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
 		return
@@ -184,8 +184,8 @@ func UpdateSheetData(_ context.Context, sheetsService *sheets.Service, spreadshe
 	return row, nil
 }
 
-// UpdateSheetChart update the ChartID in the spreadsheetID with data from sheetID
-func UpdateSheetChart(_ context.Context, sheetsService *sheets.Service, spreadsheetID string, chartID, sheetID, row int64) error {
+// UpdateHouryChart update the ChartID in the spreadsheetID with data from sheetID
+func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsheetID string, chartID, sheetID, row int64) error {
 	resp, err := sheetsService.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
 		Requests: []*sheets.Request{
 			&sheets.Request{
@@ -194,28 +194,10 @@ func UpdateSheetChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 					Spec: &sheets.ChartSpec{
 						BasicChart: &sheets.BasicChartSpec{
 							ChartType: "LINE",
-							Axis: []*sheets.BasicChartAxis{
-								&sheets.BasicChartAxis{
-									Position:          "BOTTOM_AXIS",
-									ViewWindowOptions: &sheets.ChartAxisViewWindowOptions{},
-								},
-								&sheets.BasicChartAxis{
-									Position:          "LEFT_AXIS",
-									ViewWindowOptions: &sheets.ChartAxisViewWindowOptions{},
-								},
-							},
 							Domains: []*sheets.BasicChartDomain{
 								&sheets.BasicChartDomain{
 									Domain: &sheets.ChartData{
-										SourceRange: &sheets.ChartSourceRange{
-											Sources: []*sheets.GridRange{
-												&sheets.GridRange{
-													SheetId:        sheetID,
-													EndColumnIndex: 1,
-													EndRowIndex:    row + 1,
-												},
-											},
-										},
+										SourceRange: newChartData(sheetID, 0, 0, 1, row), // A0:A{ROW}
 									},
 								},
 							},
@@ -223,31 +205,13 @@ func UpdateSheetChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 							Series: []*sheets.BasicChartSeries{
 								&sheets.BasicChartSeries{
 									Series: &sheets.ChartData{
-										SourceRange: &sheets.ChartSourceRange{
-											Sources: []*sheets.GridRange{
-												&sheets.GridRange{
-													SheetId:          sheetID,
-													StartColumnIndex: 1,
-													EndColumnIndex:   2,
-													EndRowIndex:      row + 1,
-												},
-											},
-										},
+										SourceRange: newChartData(sheetID, 1, 0, 2, row), // B0:B{ROW}
 									},
 									TargetAxis: "LEFT_AXIS",
 								},
 								&sheets.BasicChartSeries{
 									Series: &sheets.ChartData{
-										SourceRange: &sheets.ChartSourceRange{
-											Sources: []*sheets.GridRange{
-												&sheets.GridRange{
-													SheetId:          sheetID,
-													StartColumnIndex: 2,
-													EndColumnIndex:   3,
-													EndRowIndex:      row + 1,
-												},
-											},
-										},
+										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW}
 									},
 									TargetAxis: "LEFT_AXIS",
 								},
@@ -266,6 +230,20 @@ func UpdateSheetChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 		return fmt.Errorf("unexpected return status code: %d", resp.HTTPStatusCode)
 	}
 	return nil
+}
+
+func newChartData(sheetID, startColumnIndex, startRowIndex, endColumnIndex, endRowIndex int64) *sheets.ChartSourceRange {
+	return &sheets.ChartSourceRange{
+		Sources: []*sheets.GridRange{
+			&sheets.GridRange{
+				SheetId:          sheetID,
+				StartColumnIndex: startColumnIndex,
+				StartRowIndex:    startRowIndex,
+				EndColumnIndex:   endColumnIndex,
+				EndRowIndex:      endRowIndex,
+			},
+		},
+	}
 }
 
 // GetSheet get a spreadsheet information like the chartID
