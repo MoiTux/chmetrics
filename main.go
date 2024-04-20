@@ -87,7 +87,7 @@ func main() {
 		return
 	}
 
-	if time.Now().Hour() == 0 {
+	if time.Now().Hour() != 0 {
 		// not midnight we can stop here
 		return
 	}
