@@ -23,18 +23,31 @@ func main() {
 
 	var petitionName string
 	var spreadsheetID string
+
 	var hourlySheetName string
 	var hourlySheetID int64
 	var hourlyChartID int64
 
+	var dailySheetName string
+	var dailySheetID int64
+	var dailyChartID int64
+
 	flag.StringVar(&petitionName, "petition-name", "", "name of the petition to get metrics from")
+
 	flag.StringVar(&spreadsheetID, "spreadsheet-id", "", "id of the spreadsheet to update")
+
 	flag.StringVar(&hourlySheetName, "hourly-sheet-name", "", "name of the sheet for hourly update")
 	flag.Int64Var(&hourlySheetID, "hourly-sheet-id", 0, "id of the sheet for hourly update")
 	flag.Int64Var(&hourlyChartID, "hourly-chart-id", 0, "id of the chart for hourly update")
 
+	flag.StringVar(&dailySheetName, "daily-sheet-name", "", "name of the sheet for daily update")
+	flag.Int64Var(&dailySheetID, "daily-sheet-id", 0, "id of the sheet for daily update")
+	flag.Int64Var(&dailyChartID, "daily-chart-id", 0, "id of the chart for daily update")
+
 	flag.Parse()
-	if petitionName == "" || spreadsheetID == "" || hourlySheetName == "" || hourlySheetID == 0 || hourlyChartID == 0 {
+	if petitionName == "" || spreadsheetID == "" ||
+		hourlySheetName == "" || hourlySheetID == 0 || hourlyChartID == 0 ||
+		dailySheetName == "" || dailySheetID == 0 || dailyChartID == 0 {
 		flag.PrintDefaults()
 		return
 	}
@@ -69,6 +82,31 @@ func main() {
 	}
 
 	err = UpdateHouryChart(ctx, sheetsService, spreadsheetID, hourlyChartID, hourlySheetID, row+1)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
+		return
+	}
+
+	if time.Now().Hour() == 0 {
+		// not midnight we can stop here
+		return
+	}
+
+	start := time.Date(2024, 3, 28, 0, 0, 0, 0, time.Local)
+	nbDay := int(time.Now().Sub(start).Hours() / 24)
+
+	row, err = UpdateSheetData(ctx, sheetsService, spreadsheetID, dailySheetName+"!A1:C1", []any{
+		time.Now().Format("02-01-2006"),
+		signature,
+		fmt.Sprintf("=B%d-B%d", nbDay+3, nbDay+2), // +1 for the header, +1 for current day, +1 for next day
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "updating sheet data", err)
+		return
+	}
+
+	// add yesterday value to the chart
+	err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, row)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
 		return
@@ -209,6 +247,48 @@ func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 									},
 									TargetAxis: "LEFT_AXIS",
 								},
+								&sheets.BasicChartSeries{
+									Series: &sheets.ChartData{
+										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW}
+									},
+									TargetAxis: "LEFT_AXIS",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}).Do()
+	if err != nil {
+		return fmt.Errorf("calling API: %w", err)
+	}
+	if resp.HTTPStatusCode != http.StatusOK {
+		// should not happen API is supposed to always return 200
+		return fmt.Errorf("unexpected return status code: %d", resp.HTTPStatusCode)
+	}
+	return nil
+}
+
+// UpdateDailyChart update the ChartID in the spreadsheetID with data from sheetID
+func UpdateDailyChart(_ context.Context, sheetsService *sheets.Service, spreadsheetID string, chartID, sheetID, row int64) error {
+	resp, err := sheetsService.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
+		Requests: []*sheets.Request{
+			&sheets.Request{
+				UpdateChartSpec: &sheets.UpdateChartSpecRequest{
+					ChartId: chartID,
+					Spec: &sheets.ChartSpec{
+						BasicChart: &sheets.BasicChartSpec{
+							ChartType: "COLUMN",
+							Domains: []*sheets.BasicChartDomain{
+								&sheets.BasicChartDomain{
+									Domain: &sheets.ChartData{
+										SourceRange: newChartData(sheetID, 0, 0, 1, row), // A0:A{ROW}
+									},
+								},
+							},
+							HeaderCount: 1,
+							Series: []*sheets.BasicChartSeries{
 								&sheets.BasicChartSeries{
 									Series: &sheets.ChartData{
 										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW}
