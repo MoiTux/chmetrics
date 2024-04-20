@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -15,17 +16,29 @@ import (
 	sheets "google.golang.org/api/sheets/v4"
 )
 
-// export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credential
-
-const (
-	spreadsheetID       = "qwertyuiop"
-	chartID       int64 = 234
-	sheetID       int64 = 45345
-	petitionName        = "name of a petition"
-)
+// export GOOGLE_APPLICATION_CREDENTIALS=/path/to/credntiel
 
 func main() {
 	ctx := context.Background()
+
+	var petitionName string
+	var spreadsheetID string
+	var hourlySheetName string
+	var hourlySheetID int64
+	var hourlyChartID int64
+
+	flag.StringVar(&petitionName, "petition-name", "", "name of the petition to get metrics from")
+	flag.StringVar(&spreadsheetID, "spreadsheet-id", "", "id of the spreadsheet to update")
+	flag.StringVar(&hourlySheetName, "hourly-sheet-name", "", "name of the sheet for hourly update")
+	flag.Int64Var(&hourlySheetID, "hourly-sheet-id", 0, "id of the sheet for hourly update")
+	flag.Int64Var(&hourlyChartID, "hourly-chart-id", 0, "id of the chart for hourly update")
+
+	flag.Parse()
+	if petitionName == "" || spreadsheetID == "" || hourlySheetName == "" || hourlySheetID == 0 || hourlyChartID == 0 {
+		flag.PrintDefaults()
+		return
+	}
+
 	sheetsService, err := sheets.NewService(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "creating a new sheet services", err)
@@ -45,7 +58,7 @@ func main() {
 		return
 	}
 
-	row, err := UpdateSheetData(ctx, sheetsService, spreadsheetID, "ParHeure!A1:C1", []any{
+	row, err := UpdateSheetData(ctx, sheetsService, spreadsheetID, hourlySheetName+"!A1:C1", []any{
 		time.Now().Format("02-01-2006 15:04:05"),
 		signature,
 		goal,
@@ -55,7 +68,7 @@ func main() {
 		return
 	}
 
-	err = UpdateSheetChart(ctx, sheetsService, spreadsheetID, chartID, sheetID, row)
+	err = UpdateSheetChart(ctx, sheetsService, spreadsheetID, hourlyChartID, hourlySheetID, row)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
 		return
