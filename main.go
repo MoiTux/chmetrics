@@ -92,8 +92,13 @@ func main() {
 		return
 	}
 
-	start := time.Date(2024, 3, 28, 0, 0, 0, 0, time.Local)
-	nbDay := int(time.Now().Sub(start).Hours() / 24)
+	// Make sure we compute the number of day based UTC to avoid issues with daylight saving time.
+	// As the compute is done at midnight in the local time zone (CET/CEST) we need to manually create the right date,
+	// otherwise it can be converted to the previous day (using '.UTC()', or '.Truncate(24*time.Hour)'),
+	// or having a day less than 24 hours, which might also result is missing one day.
+	start := time.Date(2024, 3, 28, 0, 0, 0, 0, time.UTC)
+	now := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.UTC)
+	nbDay := int(now.Sub(start).Hours() / 24)
 
 	row, err = UpdateSheetData(ctx, sheetsService, spreadsheetID, dailySheetName+"!A1:C1", []any{
 		time.Now().Format("02-01-2006"),
