@@ -98,12 +98,14 @@ func main() {
 	// or having a day less than 24 hours, which might also result is missing one day.
 	start := time.Date(2024, 3, 28, 0, 0, 0, 0, time.UTC)
 	now := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.UTC)
-	nbDay := int(now.Sub(start).Hours() / 24)
 
-	row, err = UpdateSheetData(ctx, sheetsService, spreadsheetID, dailySheetName+"!A1:C1", []any{
+	// row are one-based indexed (usualy the header), thus the first day (nbDay == 0) is at row == 2
+	row = int64(now.Sub(start).Hours()/24) + 2
+
+	_, err = UpdateSheetData(ctx, sheetsService, spreadsheetID, dailySheetName+"!A1:C1", []any{
 		time.Now().Format("02-01-2006"),
 		signature,
-		fmt.Sprintf("=B%d-B%d", nbDay+3, nbDay+2), // +1 for the header, +1 for current day, +1 for next day
+		fmt.Sprintf("=B%d-B%d", row+1, row), // compute the difference with the new next day (which will be computed tomorrow)
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating sheet data", err)
