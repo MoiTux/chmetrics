@@ -81,6 +81,7 @@ func main() {
 		return
 	}
 
+	// Add the new value to the chart: need to add 1 as row is excluded from the range
 	err = UpdateHouryChart(ctx, sheetsService, spreadsheetID, hourlyChartID, hourlySheetID, row+1)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
@@ -112,7 +113,7 @@ func main() {
 		return
 	}
 
-	// add yesterday value to the chart
+	// add yesterday value to the chart: as row is the current day and is excluded for the range no need to remove 1.
 	err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, row)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
@@ -230,6 +231,7 @@ func UpdateSheetData(_ context.Context, sheetsService *sheets.Service, spreadshe
 }
 
 // UpdateHouryChart update the ChartID in the spreadsheetID with data from sheetID
+// The value of row is excluded for the range.
 func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsheetID string, chartID, sheetID, row int64) error {
 	resp, err := sheetsService.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
 		Requests: []*sheets.Request{
@@ -242,7 +244,7 @@ func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 							Domains: []*sheets.BasicChartDomain{
 								&sheets.BasicChartDomain{
 									Domain: &sheets.ChartData{
-										SourceRange: newChartData(sheetID, 0, 0, 1, row), // A0:A{ROW}
+										SourceRange: newChartData(sheetID, 0, 0, 1, row), // A0:A{ROW-1}
 									},
 								},
 							},
@@ -250,13 +252,13 @@ func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 							Series: []*sheets.BasicChartSeries{
 								&sheets.BasicChartSeries{
 									Series: &sheets.ChartData{
-										SourceRange: newChartData(sheetID, 1, 0, 2, row), // B0:B{ROW}
+										SourceRange: newChartData(sheetID, 1, 0, 2, row), // B0:B{ROW-1}
 									},
 									TargetAxis: "LEFT_AXIS",
 								},
 								&sheets.BasicChartSeries{
 									Series: &sheets.ChartData{
-										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW}
+										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW-1}
 									},
 									TargetAxis: "LEFT_AXIS",
 								},
@@ -290,7 +292,7 @@ func UpdateDailyChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 							Domains: []*sheets.BasicChartDomain{
 								&sheets.BasicChartDomain{
 									Domain: &sheets.ChartData{
-										SourceRange: newChartData(sheetID, 0, 0, 1, row), // A0:A{ROW}
+										SourceRange: newChartData(sheetID, 0, 0, 1, row), // A0:A{ROW-1}
 									},
 								},
 							},
@@ -298,7 +300,7 @@ func UpdateDailyChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 							Series: []*sheets.BasicChartSeries{
 								&sheets.BasicChartSeries{
 									Series: &sheets.ChartData{
-										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW}
+										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW-1}
 									},
 									TargetAxis: "LEFT_AXIS",
 								},
