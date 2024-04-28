@@ -88,37 +88,22 @@ func main() {
 		return
 	}
 
-	if time.Now().Hour() != 0 {
-		// not midnight we can stop here
+	row, valueRange := computeDailyRanges(dailySheetName, signature)
+
+	err = updateData(ctx, sheetsService, spreadsheetID, valueRange)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "updating data", err)
 		return
 	}
 
-	// Make sure we compute the number of day based UTC to avoid issues with daylight saving time.
-	// As the compute is done at midnight in the local time zone (CET/CEST) we need to manually create the right date,
-	// otherwise it can be converted to the previous day (using '.UTC()', or '.Truncate(24*time.Hour)'),
-	// or having a day less than 24 hours, which might also result is missing one day.
-	start := time.Date(2024, 3, 28, 0, 0, 0, 0, time.UTC)
-	now := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.UTC)
-
-	// row are one-based indexed (usually the header), thus the first day (nbDay == 0) is at row == 2
-	row = int64(now.Sub(start).Hours()/24) + 2
-
-	row, err = UpdateSheetData(ctx, sheetsService, spreadsheetID, dailySheetName+"!A1:C1", []any{
-		time.Now().Format("02-01-2006"),
-		signature,
-		fmt.Sprintf("=B%d-B%d", row+1, row), // compute the difference with the new next day (which will be computed tomorrow)
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "updating sheet data", err)
-		return
-	}
-
-	// add yesterday value to the chart: as row has ben computed on a 1 based index, here we are in a zero-based index
-	// need to remove one to exclude current day
-	err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, row-1)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
-		return
+	if time.Now().Hour() == 0 {
+		// add current day to the chart, as row has ben computed on a 1 based index, here we are in a zero-based index
+		// we don't need to remove one.
+		err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, row)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "updating daily chart", err)
+			return
+		}
 	}
 }
 
@@ -229,6 +214,64 @@ func UpdateSheetData(_ context.Context, sheetsService *sheets.Service, spreadshe
 		return 0, fmt.Errorf("parsing str to int: %w", err)
 	}
 	return row, nil
+}
+
+func updateData(ctx context.Context, sheetsService *sheets.Service, spreadsheetID string, valueRange []*sheets.ValueRange) error {
+	updateCall := sheets.NewSpreadsheetsValuesService(sheetsService).BatchUpdate(
+		spreadsheetID,
+		&sheets.BatchUpdateValuesRequest{
+			ValueInputOption: "USER_ENTERED",
+			Data:             valueRange,
+		},
+	)
+
+	resp, err := updateCall.Context(ctx).Do()
+	if err != nil {
+		return fmt.Errorf("calling API: %w", err)
+	}
+	if resp.HTTPStatusCode != http.StatusOK {
+		// should not happen API is supposed to always return 200
+		return fmt.Errorf("unexpected return status code: %d", resp.HTTPStatusCode)
+	}
+	return nil
+}
+
+// computeDailyRanges computes the needed range to update the data about the daily chart
+func computeDailyRanges(dailySheetName string, signature int64) (int64, []*sheets.ValueRange) {
+	// Make sure we compute the number of day based UTC to avoid issues with daylight saving time.
+	// As the compute is done at midnight in the local time zone (CET/CEST) we need to manually create the right date,
+	// otherwise it can be converted to the previous day (using '.UTC()', or '.Truncate(24*time.Hour)'),
+	// or having a day less than 24 hours, which might also result is missing one day.
+	start := time.Date(2024, 3, 28, 0, 0, 0, 0, time.UTC)
+	now := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.UTC)
+
+	// row are one-based indexed (usually the header), thus the first day (nbDay == 0) is at row == 2
+	row := int64(now.Sub(start).Hours()/24) + 2
+
+	var valueRange []*sheets.ValueRange
+	if time.Now().Hour() == 0 {
+		valueRange = append(valueRange, &sheets.ValueRange{
+			Range:          fmt.Sprintf("%s!A%d:C%d", dailySheetName, row, row),
+			MajorDimension: "ROWS",
+			Values: [][]any{
+				[]any{
+					time.Now().Format("02-01-2006"),
+					signature,
+					fmt.Sprintf("=B%d-B%d", row+1, row), // compute the difference with the new next day (which will be computed throughout the day)
+				},
+			},
+		})
+	}
+
+	return row, append(valueRange, &sheets.ValueRange{
+		Range:          fmt.Sprintf("%s!B%d", dailySheetName, row+1),
+		MajorDimension: "ROWS",
+		Values: [][]any{
+			[]any{
+				signature,
+			},
+		},
+	})
 }
 
 // UpdateHouryChart update the ChartID in the spreadsheetID with data from sheetID
