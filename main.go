@@ -25,10 +25,12 @@ func main() {
 	var spreadsheetID string
 
 	var hourlySheetName string
+	var hourlySummaryRange string
 	var hourlySheetID int64
 	var hourlyChartID int64
 
 	var dailySheetName string
+	var dailySummaryRange string
 	var dailySheetID int64
 	var dailyChartID int64
 
@@ -37,17 +39,19 @@ func main() {
 	flag.StringVar(&spreadsheetID, "spreadsheet-id", "", "id of the spreadsheet to update")
 
 	flag.StringVar(&hourlySheetName, "hourly-sheet-name", "", "name of the sheet for hourly update")
+	flag.StringVar(&hourlySummaryRange, "hourly-summary-range", "", "range in columns for the hourly summary")
 	flag.Int64Var(&hourlySheetID, "hourly-sheet-id", 0, "id of the sheet for hourly update")
 	flag.Int64Var(&hourlyChartID, "hourly-chart-id", 0, "id of the chart for hourly update")
 
 	flag.StringVar(&dailySheetName, "daily-sheet-name", "", "name of the sheet for daily update")
+	flag.StringVar(&dailySummaryRange, "daily-summary-range", "", "range in columns for the daily summary")
 	flag.Int64Var(&dailySheetID, "daily-sheet-id", 0, "id of the sheet for daily update")
 	flag.Int64Var(&dailyChartID, "daily-chart-id", 0, "id of the chart for daily update")
 
 	flag.Parse()
 	if petitionName == "" || spreadsheetID == "" ||
-		hourlySheetName == "" || hourlySheetID == 0 || hourlyChartID == 0 ||
-		dailySheetName == "" || dailySheetID == 0 || dailyChartID == 0 {
+		hourlySheetName == "" || hourlySummaryRange == "" || hourlySheetID == 0 || hourlyChartID == 0 ||
+		dailySheetName == "" || dailySummaryRange == "" || dailySheetID == 0 || dailyChartID == 0 {
 		flag.PrintDefaults()
 		return
 	}
@@ -88,7 +92,12 @@ func main() {
 		return
 	}
 
-	row, valueRange := computeDailyRanges(dailySheetName, signature)
+	valueRange := []*sheets.ValueRange{
+		computeHourlySummary(hourlySummaryRange, hourlySheetName, row+1),
+	}
+
+	row, vr := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
+	valueRange = append(valueRange, vr...)
 
 	err = updateData(ctx, sheetsService, spreadsheetID, valueRange)
 	if err != nil {
@@ -97,8 +106,8 @@ func main() {
 	}
 
 	if time.Now().Hour() == 0 {
-		// add current day to the chart, as row has ben computed on a 1 based index, here we are in a zero-based index
-		// we don't need to remove one.
+		// add current day to the chart
+		// As row has ben computed on a 1 based index, here we are in a zero-based index we don't need to remove one.
 		err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, row)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "updating daily chart", err)
@@ -236,8 +245,8 @@ func updateData(ctx context.Context, sheetsService *sheets.Service, spreadsheetI
 	return nil
 }
 
-// computeDailyRanges computes the needed range to update the data about the daily chart
-func computeDailyRanges(dailySheetName string, signature int64) (int64, []*sheets.ValueRange) {
+// computeDailyRanges computes the needed range to update the data about the daily chart and summary
+func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int64) (int64, []*sheets.ValueRange) {
 	// Make sure we compute the number of day based UTC to avoid issues with daylight saving time.
 	// As the compute is done at midnight in the local time zone (CET/CEST) we need to manually create the right date,
 	// otherwise it can be converted to the previous day (using '.UTC()', or '.Truncate(24*time.Hour)'),
@@ -249,7 +258,23 @@ func computeDailyRanges(dailySheetName string, signature int64) (int64, []*sheet
 	row := int64(now.Sub(start).Hours()/24) + 2
 
 	var valueRange []*sheets.ValueRange
+
 	if time.Now().Hour() == 0 {
+		// compute summary
+		steps := []int64{3, 2, 1, 0}
+		data := make([]any, 0, len(steps))
+		for _, step := range steps {
+			data = append(data, fmt.Sprintf("='%s'!C%d", dailySheetName, row-step))
+		}
+		valueRange = append(valueRange, &sheets.ValueRange{
+			Range:          dailySummaryRange,
+			MajorDimension: "COLUMNS",
+			Values: [][]any{
+				data,
+			},
+		})
+
+		// add new day
 		valueRange = append(valueRange, &sheets.ValueRange{
 			Range:          fmt.Sprintf("%s!A%d:C%d", dailySheetName, row, row),
 			MajorDimension: "ROWS",
@@ -263,6 +288,7 @@ func computeDailyRanges(dailySheetName string, signature int64) (int64, []*sheet
 		})
 	}
 
+	// compute current day
 	return row, append(valueRange, &sheets.ValueRange{
 		Range:          fmt.Sprintf("%s!B%d", dailySheetName, row+1),
 		MajorDimension: "ROWS",
@@ -272,6 +298,24 @@ func computeDailyRanges(dailySheetName string, signature int64) (int64, []*sheet
 			},
 		},
 	})
+}
+
+// computeHourlySummary compute a sheets.ValueRange to update the hourly summary data
+// row is one-based indexed included
+func computeHourlySummary(range_, sheetName string, lastRow int64) *sheets.ValueRange {
+	steps := []int64{48, 24, 12, 6}
+	data := make([]any, 0, len(steps))
+	for _, step := range steps {
+		data = append(data, fmt.Sprintf("='%s'!B%d-'%s'!B%d", sheetName, lastRow, sheetName, lastRow-step))
+	}
+
+	return &sheets.ValueRange{
+		Range:          range_,
+		MajorDimension: "COLUMNS",
+		Values: [][]any{
+			data,
+		},
+	}
 }
 
 // UpdateHouryChart update the ChartID in the spreadsheetID with data from sheetID
