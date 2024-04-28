@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"regexp"
+	"strconv"
 	"time"
 
 	sheets "google.golang.org/api/sheets/v4"
@@ -75,7 +78,11 @@ func main() {
 
 	hourRow, valueRange := computeHourlyRanges(hourlySheetName, hourlySummaryRange, signature, goal)
 
-	dayRow, vr := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
+	dayRow, vr, err := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "computing daily ranges", err)
+		return
+	}
 	valueRange = append(valueRange, vr...)
 
 	err = updateData(ctx, sheetsService, spreadsheetID, valueRange)
@@ -232,7 +239,7 @@ func computeHourlyRanges(hourlySheetName, hourlySummaryRange string, signature, 
 }
 
 // computeDailyRanges computes the needed range to update the data about the daily chart and summary
-func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int64) (int64, []*sheets.ValueRange) {
+func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int64) (int64, []*sheets.ValueRange, error) {
 	// Make sure we compute the number of day based UTC to avoid issues with daylight saving time.
 	// As the compute is done at midnight in the local time zone (CET/CEST) we need to manually create the right date,
 	// otherwise it can be converted to the previous day (using '.UTC()', or '.Truncate(24*time.Hour)'),
@@ -246,10 +253,29 @@ func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int6
 	var valueRange []*sheets.ValueRange
 
 	if time.Now().Hour() == 0 {
+		sheetName, column, summaryRow, err := parseRange(dailySummaryRange)
+		if err != nil {
+			return 0, nil, fmt.Errorf("parsing range: %w", err)
+		}
+		summaryColumn, err := computeNextColumn(column)
+		if err != nil {
+			return 0, nil, fmt.Errorf("computing next value: %w", err)
+		}
+
+		steps := []int64{4, 3, 2, 1, 0}
+		valueRange = append(valueRange, &sheets.ValueRange{
+			Range:          fmt.Sprintf("%s!%s%d", sheetName, summaryColumn, summaryRow),
+			MajorDimension: "ROWS",
+			Values: [][]any{
+				[]any{
+					fmt.Sprintf("='%s'!%s%d-'%s'!C%d", sheetName, column, summaryRow, dailySheetName, row-steps[0]),
+				},
+			},
+		})
+
 		// compute summary
-		steps := []int64{3, 2, 1, 0}
-		data := make([]any, 0, len(steps))
-		for _, step := range steps {
+		data := make([]any, 0, len(steps[1:]))
+		for _, step := range steps[1:] {
 			data = append(data, fmt.Sprintf("='%s'!C%d", dailySheetName, row-step))
 		}
 		valueRange = append(valueRange, &sheets.ValueRange{
@@ -283,7 +309,43 @@ func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int6
 				signature,
 			},
 		},
-	})
+	}), nil
+}
+
+var regexpRange = regexp.MustCompile("^(.*)!(([a-zA-Z]+)([0-9]+)):[a-zA-Z]+[0-9]+$")
+
+// parseRange parse a range like: Chart!F28:F31
+// it returns:
+// - the name: Chart
+// - the first column: F
+// - the first row: 28
+func parseRange(range_ string) (string, string, int64, error) {
+	parsed := regexpRange.FindStringSubmatch(range_)
+	if len(parsed) != 5 {
+		return "", "", 0, fmt.Errorf("invalid range: %s", range_)
+	}
+
+	row, err := strconv.ParseInt(parsed[4], 10, 64)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("parsing str to int: %w", err)
+	}
+
+	return parsed[1], parsed[3], row, nil
+}
+
+func computeNextColumn(column string) (string, error) {
+	if len(column) != 1 {
+		return "", errors.New("invalid column")
+	}
+
+	var c rune
+	for _, c = range column {
+	}
+
+	if c < 'A' || c >= 'Z' {
+		return "", errors.New("out of range")
+	}
+	return string(c + 1), nil
 }
 
 // UpdateHouryChart update the ChartID in the spreadsheetID with data from sheetID
