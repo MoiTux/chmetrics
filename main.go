@@ -9,8 +9,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"regexp"
-	"strconv"
 	"time"
 
 	sheets "google.golang.org/api/sheets/v4"
@@ -75,28 +73,9 @@ func main() {
 		return
 	}
 
-	row, err := UpdateSheetData(ctx, sheetsService, spreadsheetID, hourlySheetName+"!A1:C1", []any{
-		time.Now().Format("02-01-2006 15:04:05"),
-		signature,
-		goal,
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "updating sheet data", err)
-		return
-	}
+	hourRow, valueRange := computeHourlyRanges(hourlySheetName, hourlySummaryRange, signature, goal)
 
-	// Add the new value to the chart: need to add 1 as row is excluded from the range
-	err = UpdateHouryChart(ctx, sheetsService, spreadsheetID, hourlyChartID, hourlySheetID, row+1)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
-		return
-	}
-
-	valueRange := []*sheets.ValueRange{
-		computeHourlySummary(hourlySummaryRange, hourlySheetName, row+1),
-	}
-
-	row, vr := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
+	dayRow, vr := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
 	valueRange = append(valueRange, vr...)
 
 	err = updateData(ctx, sheetsService, spreadsheetID, valueRange)
@@ -105,14 +84,25 @@ func main() {
 		return
 	}
 
-	if time.Now().Hour() == 0 {
-		// add current day to the chart
-		// As row has ben computed on a 1 based index, here we are in a zero-based index we don't need to remove one.
-		err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, row)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "updating daily chart", err)
-			return
-		}
+	// Add the new value to the chart, row is excluded but was computed on a one-based indexed,
+	// here we are on a zero-based one, so it's all good
+	err = UpdateHouryChart(ctx, sheetsService, spreadsheetID, hourlyChartID, hourlySheetID, hourRow)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
+		return
+	}
+
+	if time.Now().Hour() != 0 {
+		// not midnight we can stop here
+		return
+	}
+
+	// Add current day to the chart, row is excluded but was computed on a one-based indexed,
+	// here we are on a zero-based one, so it's all good
+	err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, dayRow)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "updating daily chart", err)
+		return
 	}
 }
 
@@ -185,46 +175,6 @@ func GetMetrics(ctx context.Context, petitionName string) (int64, int64, error) 
 	return res[0].Data.Petition.Signature.Count.Value, res[0].Data.Petition.Signature.Goal.Value, nil
 }
 
-// UpdateSheetData append values into the spreadsheets sheetID and based on the range (cell).
-// It return the row number (0 based indexed) of where values have been added.
-func UpdateSheetData(_ context.Context, sheetsService *sheets.Service, spreadsheetID, range_ string, values []any) (int64, error) {
-	appendCall := sheets.NewSpreadsheetsValuesService(sheetsService).Append(
-		spreadsheetID,
-		range_,
-		&sheets.ValueRange{
-			MajorDimension: "ROWS",
-			Values: [][]any{
-				values,
-			},
-		},
-	)
-
-	resp, err := appendCall.ValueInputOption("USER_ENTERED").IncludeValuesInResponse(false).Do()
-	if err != nil {
-		return 0, fmt.Errorf("calling API: %w", err)
-	}
-	if resp.HTTPStatusCode != http.StatusOK {
-		// should not happen API is supposed to always return 200
-		return 0, fmt.Errorf("unexpected return status code: %d", resp.HTTPStatusCode)
-	}
-
-	reg, err := regexp.Compile(":[A-Z]+([0-9]+)$")
-	if err != nil {
-		return 0, fmt.Errorf("compiling the regexp: %w", err)
-	}
-
-	matches := reg.FindAllStringSubmatch(resp.TableRange, -1)
-	if len(matches) != 1 && len(matches[0]) != 2 {
-		return 0, fmt.Errorf("parsing the new range: %s", resp.TableRange)
-	}
-
-	row, err := strconv.ParseInt(matches[0][1], 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("parsing str to int: %w", err)
-	}
-	return row, nil
-}
-
 func updateData(ctx context.Context, sheetsService *sheets.Service, spreadsheetID string, valueRange []*sheets.ValueRange) error {
 	updateCall := sheets.NewSpreadsheetsValuesService(sheetsService).BatchUpdate(
 		spreadsheetID,
@@ -243,6 +193,42 @@ func updateData(ctx context.Context, sheetsService *sheets.Service, spreadsheetI
 		return fmt.Errorf("unexpected return status code: %d", resp.HTTPStatusCode)
 	}
 	return nil
+}
+
+// computeHourlyRanges computes the needed range to update the data about the hourly chart and summary
+func computeHourlyRanges(hourlySheetName, hourlySummaryRange string, signature, goal int64) (int64, []*sheets.ValueRange) {
+	start := time.Date(2024, 4, 15, 3, 0, 0, 0, time.Local) // row 18
+	row := 18 + int64(time.Now().Sub(start).Hours())
+
+	valueRange := []*sheets.ValueRange{
+		// add new hourly value
+		&sheets.ValueRange{
+			Range:          fmt.Sprintf("%s!A%d:C%d", hourlySheetName, row, row),
+			MajorDimension: "ROWS",
+			Values: [][]any{
+				[]any{
+					time.Now().Format("02-01-2006 15:04:05"),
+					signature,
+					goal,
+				},
+			},
+		},
+	}
+
+	// compute new hourly summary
+	steps := []int64{48, 24, 12, 6}
+	data := make([]any, 0, len(steps))
+	for _, step := range steps {
+		data = append(data, fmt.Sprintf("='%s'!B%d-'%s'!B%d", hourlySheetName, row, hourlySheetName, row-step))
+	}
+
+	return row, append(valueRange, &sheets.ValueRange{
+		Range:          hourlySummaryRange,
+		MajorDimension: "COLUMNS",
+		Values: [][]any{
+			data,
+		},
+	})
 }
 
 // computeDailyRanges computes the needed range to update the data about the daily chart and summary
@@ -298,24 +284,6 @@ func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int6
 			},
 		},
 	})
-}
-
-// computeHourlySummary compute a sheets.ValueRange to update the hourly summary data
-// row is one-based indexed included
-func computeHourlySummary(range_, sheetName string, lastRow int64) *sheets.ValueRange {
-	steps := []int64{48, 24, 12, 6}
-	data := make([]any, 0, len(steps))
-	for _, step := range steps {
-		data = append(data, fmt.Sprintf("='%s'!B%d-'%s'!B%d", sheetName, lastRow, sheetName, lastRow-step))
-	}
-
-	return &sheets.ValueRange{
-		Range:          range_,
-		MajorDimension: "COLUMNS",
-		Values: [][]any{
-			data,
-		},
-	}
 }
 
 // UpdateHouryChart update the ChartID in the spreadsheetID with data from sheetID
