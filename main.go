@@ -100,10 +100,10 @@ func main() {
 	start := time.Date(2024, 3, 28, 0, 0, 0, 0, time.UTC)
 	now := time.Date(time.Now().Year(), time.Now().Month(), time.Now().Day(), 0, 0, 0, 0, time.UTC)
 
-	// row are one-based indexed (usualy the header), thus the first day (nbDay == 0) is at row == 2
+	// row are one-based indexed (usually the header), thus the first day (nbDay == 0) is at row == 2
 	row = int64(now.Sub(start).Hours()/24) + 2
 
-	_, err = UpdateSheetData(ctx, sheetsService, spreadsheetID, dailySheetName+"!A1:C1", []any{
+	row, err = UpdateSheetData(ctx, sheetsService, spreadsheetID, dailySheetName+"!A1:C1", []any{
 		time.Now().Format("02-01-2006"),
 		signature,
 		fmt.Sprintf("=B%d-B%d", row+1, row), // compute the difference with the new next day (which will be computed tomorrow)
@@ -113,8 +113,9 @@ func main() {
 		return
 	}
 
-	// add yesterday value to the chart: as row is the current day and is excluded for the range no need to remove 1.
-	err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, row)
+	// add yesterday value to the chart: as row has ben computed on a 1 based index, here we are in a zero-based index
+	// need to remove one to exclude current day
+	err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, row-1)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
 		return
@@ -191,7 +192,7 @@ func GetMetrics(ctx context.Context, petitionName string) (int64, int64, error) 
 }
 
 // UpdateSheetData append values into the spreadsheets sheetID and based on the range (cell).
-// It return the row number of where values have been added.
+// It return the row number (0 based indexed) of where values have been added.
 func UpdateSheetData(_ context.Context, sheetsService *sheets.Service, spreadsheetID, range_ string, values []any) (int64, error) {
 	appendCall := sheets.NewSpreadsheetsValuesService(sheetsService).Append(
 		spreadsheetID,
