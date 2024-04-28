@@ -250,66 +250,71 @@ func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int6
 	// row are one-based indexed (usually the header), thus the first day (nbDay == 0) is at row == 2
 	row := int64(now.Sub(start).Hours()/24) + 2
 
-	var valueRange []*sheets.ValueRange
-
-	if time.Now().Hour() == 0 {
-		sheetName, column, summaryRow, err := parseRange(dailySummaryRange)
-		if err != nil {
-			return 0, nil, fmt.Errorf("parsing range: %w", err)
-		}
-		summaryColumn, err := computeNextColumn(column)
-		if err != nil {
-			return 0, nil, fmt.Errorf("computing next value: %w", err)
-		}
-
-		steps := []int64{4, 3, 2, 1, 0}
-		valueRange = append(valueRange, &sheets.ValueRange{
-			Range:          fmt.Sprintf("%s!%s%d", sheetName, summaryColumn, summaryRow),
+	valueRange := []*sheets.ValueRange{
+		// compute current day
+		&sheets.ValueRange{
+			Range:          fmt.Sprintf("%s!B%d", dailySheetName, row+1),
 			MajorDimension: "ROWS",
 			Values: [][]any{
 				[]any{
-					fmt.Sprintf("='%s'!%s%d-'%s'!C%d", sheetName, column, summaryRow, dailySheetName, row-steps[0]),
-				},
-			},
-		})
-
-		// compute summary
-		data := make([]any, 0, len(steps[1:]))
-		for _, step := range steps[1:] {
-			data = append(data, fmt.Sprintf("='%s'!C%d", dailySheetName, row-step))
-		}
-		valueRange = append(valueRange, &sheets.ValueRange{
-			Range:          dailySummaryRange,
-			MajorDimension: "COLUMNS",
-			Values: [][]any{
-				data,
-			},
-		})
-
-		// add new day
-		valueRange = append(valueRange, &sheets.ValueRange{
-			Range:          fmt.Sprintf("%s!A%d:C%d", dailySheetName, row, row),
-			MajorDimension: "ROWS",
-			Values: [][]any{
-				[]any{
-					time.Now().Format("02-01-2006"),
 					signature,
-					fmt.Sprintf("=B%d-B%d", row+1, row), // compute the difference with the new next day (which will be computed throughout the day)
 				},
 			},
-		})
+		},
 	}
 
-	// compute current day
-	return row, append(valueRange, &sheets.ValueRange{
-		Range:          fmt.Sprintf("%s!B%d", dailySheetName, row+1),
+	if time.Now().Hour() != 0 {
+		return row, valueRange, nil
+	}
+
+	sheetName, column, summaryRow, err := parseRange(dailySummaryRange)
+	if err != nil {
+		return 0, nil, fmt.Errorf("parsing range: %w", err)
+	}
+	summaryColumn, err := computeNextColumn(column)
+	if err != nil {
+		return 0, nil, fmt.Errorf("computing next value: %w", err)
+	}
+
+	steps := []int64{4, 3, 2, 1, 0}
+
+	// compute trend
+	valueRange = append(valueRange, &sheets.ValueRange{
+		Range:          fmt.Sprintf("%s!%s%d", sheetName, summaryColumn, summaryRow),
 		MajorDimension: "ROWS",
 		Values: [][]any{
 			[]any{
-				signature,
+				fmt.Sprintf("='%s'!%s%d-'%s'!C%d", sheetName, column, summaryRow, dailySheetName, row-steps[0]),
 			},
 		},
-	}), nil
+	})
+
+	// compute summary
+	data := make([]any, 0, len(steps[1:]))
+	for _, step := range steps[1:] {
+		data = append(data, fmt.Sprintf("='%s'!C%d", dailySheetName, row-step))
+	}
+	valueRange = append(valueRange, &sheets.ValueRange{
+		Range:          dailySummaryRange,
+		MajorDimension: "COLUMNS",
+		Values: [][]any{
+			data,
+		},
+	})
+
+	// add new day
+	valueRange = append(valueRange, &sheets.ValueRange{
+		Range:          fmt.Sprintf("%s!A%d:C%d", dailySheetName, row, row),
+		MajorDimension: "ROWS",
+		Values: [][]any{
+			[]any{
+				time.Now().Format("02-01-2006"),
+				signature,
+				fmt.Sprintf("=B%d-B%d", row+1, row), // compute the difference with the new next day (which will be computed throughout the day)
+			},
+		},
+	})
+	return row, valueRange, nil
 }
 
 var regexpRange = regexp.MustCompile("^(.*)!(([a-zA-Z]+)([0-9]+)):[a-zA-Z]+[0-9]+$")
