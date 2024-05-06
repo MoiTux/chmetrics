@@ -252,90 +252,83 @@ func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int6
 
 	valueRange := []*sheets.ValueRange{
 		// compute current day
-		&sheets.ValueRange{
+		{
 			Range:          fmt.Sprintf("%s!B%d", dailySheetName, row+1),
 			MajorDimension: "ROWS",
 			Values: [][]any{
-				[]any{
+				{
 					signature,
 				},
 			},
 		},
 	}
 
-	if time.Now().Hour() != 0 {
-		return row, valueRange, nil
-	}
+	// if time.Now().Hour() != 0 {
+	// 	return row, valueRange, nil
+	// }
 
-	sheetName, column, summaryRow, err := parseRange(dailySummaryRange)
+	_, _, first, _, last, err := parseRange(dailySummaryRange)
 	if err != nil {
 		return 0, nil, fmt.Errorf("parsing range: %w", err)
 	}
-	summaryColumn, err := computeNextColumn(column)
-	if err != nil {
-		return 0, nil, fmt.Errorf("computing next value: %w", err)
-	}
 
-	steps := []int64{4, 3, 2, 1, 0}
-
-	// compute trend
-	valueRange = append(valueRange, &sheets.ValueRange{
-		Range:          fmt.Sprintf("%s!%s%d", sheetName, summaryColumn, summaryRow),
-		MajorDimension: "ROWS",
-		Values: [][]any{
-			[]any{
-				fmt.Sprintf("='%s'!%s%d-'%s'!C%d", sheetName, column, summaryRow, dailySheetName, row-steps[0]),
-			},
-		},
-	})
-
-	// compute summary
-	data := make([]any, 0, len(steps[1:]))
-	for _, step := range steps[1:] {
-		data = append(data, fmt.Sprintf("='%s'!C%d", dailySheetName, row-step))
+	// summary
+	steps := last - first + 1
+	data := make([][]any, 0, steps)
+	for step := range steps {
+		data = append(data, []any{
+			fmt.Sprintf("='%s'!C%d", dailySheetName, row-step),
+			fmt.Sprintf("='%s'!D%d", dailySheetName, row-step),
+		})
 	}
 	valueRange = append(valueRange, &sheets.ValueRange{
 		Range:          dailySummaryRange,
-		MajorDimension: "COLUMNS",
-		Values: [][]any{
-			data,
-		},
+		MajorDimension: "ROWS",
+		Values:         data,
 	})
 
 	// add new day
 	valueRange = append(valueRange, &sheets.ValueRange{
-		Range:          fmt.Sprintf("%s!A%d:C%d", dailySheetName, row, row),
+		Range:          fmt.Sprintf("%s!A%d:D%d", dailySheetName, row, row),
 		MajorDimension: "ROWS",
 		Values: [][]any{
-			[]any{
+			{
 				time.Now().Format("02-01-2006"),
 				signature,
 				fmt.Sprintf("=B%d-B%d", row+1, row), // compute the difference with the new next day (which will be computed throughout the day)
+				fmt.Sprintf("=B%d-B%d", row, row-1), // compute trend
 			},
 		},
 	})
 	return row, valueRange, nil
 }
 
-var regexpRange = regexp.MustCompile("^(.*)!(([a-zA-Z]+)([0-9]+)):[a-zA-Z]+[0-9]+$")
+var regexpRange = regexp.MustCompile("^(.*)!([a-zA-Z]+)([0-9]+):([a-zA-Z]+)([0-9]+)$")
 
-// parseRange parse a range like: Chart!F28:F31
+// parseRange parse a range like: Chart!F28:G31
 // it returns:
 // - the name: Chart
 // - the first column: F
 // - the first row: 28
-func parseRange(range_ string) (string, string, int64, error) {
+// - the last column: G
+// - the last row: 31
+func parseRange(range_ string) (string, string, int64, string, int64, error) {
 	parsed := regexpRange.FindStringSubmatch(range_)
-	if len(parsed) != 5 {
-		return "", "", 0, fmt.Errorf("invalid range: %s", range_)
+	if len(parsed) != 6 {
+		return "", "", 0, "", 0, fmt.Errorf("invalid range: %s", range_)
 	}
 
-	row, err := strconv.ParseInt(parsed[4], 10, 64)
+	first_row, err := strconv.ParseInt(parsed[3], 10, 64)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("parsing str to int: %w", err)
+		return "", "", 0, "", 0, fmt.Errorf("parsing str to int: %w", err)
 	}
 
-	return parsed[1], parsed[3], row, nil
+	last_row, err := strconv.ParseInt(parsed[5], 10, 64)
+	if err != nil {
+		return "", "", 0, "", 0, fmt.Errorf("parsing str to int: %w", err)
+	}
+
+	return parsed[1], parsed[2], first_row, parsed[3], last_row, nil
 }
 
 func computeNextColumn(column string) (string, error) {
