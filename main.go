@@ -330,7 +330,7 @@ func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int6
 				time.Now().Format("02-01-2006"),
 				signature,
 				fmt.Sprintf("=B%d-B%d", row+1, row), // compute the difference with the new next day (which will be computed throughout the day)
-				fmt.Sprintf("=B%d-B%d", row, row-1), // compute trend
+				fmt.Sprintf("=C%d-C%d", row, row-1), // compute trend
 			},
 		},
 	})
