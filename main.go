@@ -25,6 +25,8 @@ func main() {
 	var petitionName string
 	var spreadsheetID string
 
+	var currentValue string
+
 	var hourlySheetName string
 	var hourlySummaryRange string
 	var hourlySheetID int64
@@ -39,6 +41,8 @@ func main() {
 
 	flag.StringVar(&spreadsheetID, "spreadsheet-id", "", "id of the spreadsheet to update")
 
+	flag.StringVar(&currentValue, "current-value", "", "cell for the current value")
+
 	flag.StringVar(&hourlySheetName, "hourly-sheet-name", "", "name of the sheet for hourly update")
 	flag.StringVar(&hourlySummaryRange, "hourly-summary-range", "", "range in columns for the hourly summary")
 	flag.Int64Var(&hourlySheetID, "hourly-sheet-id", 0, "id of the sheet for hourly update")
@@ -50,7 +54,7 @@ func main() {
 	flag.Int64Var(&dailyChartID, "daily-chart-id", 0, "id of the chart for daily update")
 
 	flag.Parse()
-	if petitionName == "" || spreadsheetID == "" ||
+	if petitionName == "" || spreadsheetID == "" || currentValue == "" ||
 		hourlySheetName == "" || hourlySummaryRange == "" || hourlySheetID == 0 || hourlyChartID == 0 ||
 		dailySheetName == "" || dailySummaryRange == "" || dailySheetID == 0 || dailyChartID == 0 {
 		flag.PrintDefaults()
@@ -76,11 +80,24 @@ func main() {
 		return
 	}
 
-	hourRow, valueRange, err := computeHourlyRanges(hourlySheetName, hourlySummaryRange, signature, goal)
+	valueRange := []*sheets.ValueRange{
+		{
+			Range:          currentValue,
+			MajorDimension: "ROWS",
+			Values: [][]any{
+				{
+					signature,
+				},
+			},
+		},
+	}
+
+	hourRow, vr, err := computeHourlyRanges(hourlySheetName, hourlySummaryRange, signature, goal)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "computing hourly ranges", err)
 		return
 	}
+	valueRange = append(valueRange, vr...)
 
 	dayRow, vr, err := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
 	if err != nil {
