@@ -357,8 +357,8 @@ func computeDailyRanges(dailySheetName, dailySummaryRange, weeklySummaryRange st
 
 	current := fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, row, row-weekDay)
 
-	row -= weekDay + 1 // end of the previous week
-	next := fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, row, row-6)
+	previousWeek := row - weekDay - 1 // end of the previous week
+	next := fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, previousWeek, previousWeek-6)
 
 	first, last, err = parseRange(weeklySummaryRange)
 	if err != nil {
@@ -370,12 +370,12 @@ func computeDailyRanges(dailySheetName, dailySummaryRange, weeklySummaryRange st
 	for range steps {
 		data = append(data, []any{
 			fmt.Sprintf("=%s", current),
-			fmt.Sprintf("=(%s)-(%s)", current, next),
+			fmt.Sprintf("=%s-%s", current, next),
 		})
 
-		row -= 7
+		previousWeek -= 7
 		current = next
-		next = fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, row, row-6)
+		next = fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, previousWeek, previousWeek-6)
 	}
 	valueRange = append(valueRange, &sheets.ValueRange{
 		Range:          weeklySummaryRange,
