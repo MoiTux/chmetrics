@@ -89,10 +89,11 @@ func main() {
 	valueRange := []*sheets.ValueRange{
 		{
 			Range:          currentValue,
-			MajorDimension: "ROWS",
+			MajorDimension: "COLUMNS",
 			Values: [][]any{
 				{
 					signature,
+					goal,
 				},
 			},
 		},
