@@ -429,14 +429,14 @@ func parseRange(range_ string) (int64, int64, error) {
 func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsheetID string, chartID, sheetID, row int64) error {
 	resp, err := sheetsService.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
 		Requests: []*sheets.Request{
-			&sheets.Request{
+			{
 				UpdateChartSpec: &sheets.UpdateChartSpecRequest{
 					ChartId: chartID,
 					Spec: &sheets.ChartSpec{
 						BasicChart: &sheets.BasicChartSpec{
 							ChartType: "LINE",
 							Domains: []*sheets.BasicChartDomain{
-								&sheets.BasicChartDomain{
+								{
 									Domain: &sheets.ChartData{
 										SourceRange: newChartData(sheetID, 0, 0, 1, row), // A0:A{ROW-1}
 									},
@@ -444,13 +444,13 @@ func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 							},
 							HeaderCount: 1,
 							Series: []*sheets.BasicChartSeries{
-								&sheets.BasicChartSeries{
+								{
 									Series: &sheets.ChartData{
 										SourceRange: newChartData(sheetID, 1, 0, 2, row), // B0:B{ROW-1}
 									},
 									TargetAxis: "LEFT_AXIS",
 								},
-								&sheets.BasicChartSeries{
+								{
 									Series: &sheets.ChartData{
 										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW-1}
 									},
@@ -477,14 +477,14 @@ func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 func UpdateDailyChart(_ context.Context, sheetsService *sheets.Service, spreadsheetID string, chartID, sheetID, row int64) error {
 	resp, err := sheetsService.Spreadsheets.BatchUpdate(spreadsheetID, &sheets.BatchUpdateSpreadsheetRequest{
 		Requests: []*sheets.Request{
-			&sheets.Request{
+			{
 				UpdateChartSpec: &sheets.UpdateChartSpecRequest{
 					ChartId: chartID,
 					Spec: &sheets.ChartSpec{
 						BasicChart: &sheets.BasicChartSpec{
 							ChartType: "COLUMN",
 							Domains: []*sheets.BasicChartDomain{
-								&sheets.BasicChartDomain{
+								{
 									Domain: &sheets.ChartData{
 										SourceRange: newChartData(sheetID, 0, 0, 1, row), // A0:A{ROW-1}
 									},
@@ -492,7 +492,7 @@ func UpdateDailyChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 							},
 							HeaderCount: 1,
 							Series: []*sheets.BasicChartSeries{
-								&sheets.BasicChartSeries{
+								{
 									Series: &sheets.ChartData{
 										SourceRange: newChartData(sheetID, 2, 0, 3, row), // C0:C{ROW-1}
 									},
@@ -518,7 +518,7 @@ func UpdateDailyChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 func newChartData(sheetID, startColumnIndex, startRowIndex, endColumnIndex, endRowIndex int64) *sheets.ChartSourceRange {
 	return &sheets.ChartSourceRange{
 		Sources: []*sheets.GridRange{
-			&sheets.GridRange{
+			{
 				SheetId:          sheetID,
 				StartColumnIndex: startColumnIndex,
 				StartRowIndex:    startRowIndex,
