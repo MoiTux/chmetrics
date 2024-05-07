@@ -7,7 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -183,7 +183,7 @@ func GetMetrics(ctx context.Context, petitionName string) (int64, int64, error) 
 		return 0, 0, fmt.Errorf("calling API: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, 0, fmt.Errorf("reading body: %w", err)
 	}
