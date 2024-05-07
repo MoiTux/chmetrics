@@ -433,6 +433,10 @@ func UpdateHouryChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 				UpdateChartSpec: &sheets.UpdateChartSpecRequest{
 					ChartId: chartID,
 					Spec: &sheets.ChartSpec{
+						Title: "Données par heure",
+						TitleTextPosition: &sheets.TextPosition{
+							HorizontalAlignment: "CENTER",
+						},
 						BasicChart: &sheets.BasicChartSpec{
 							ChartType: "LINE",
 							Domains: []*sheets.BasicChartDomain{
@@ -481,6 +485,10 @@ func UpdateDailyChart(_ context.Context, sheetsService *sheets.Service, spreadsh
 				UpdateChartSpec: &sheets.UpdateChartSpecRequest{
 					ChartId: chartID,
 					Spec: &sheets.ChartSpec{
+						Title: "Données par jour",
+						TitleTextPosition: &sheets.TextPosition{
+							HorizontalAlignment: "CENTER",
+						},
 						BasicChart: &sheets.BasicChartSpec{
 							ChartType: "COLUMN",
 							Domains: []*sheets.BasicChartDomain{
