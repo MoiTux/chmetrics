@@ -35,6 +35,7 @@ func main() {
 
 	var dailySheetName string
 	var dailySummaryRange string
+	var weeklySummaryRange string
 	var dailySheetID int64
 	var dailyChartID int64
 
@@ -51,7 +52,8 @@ func main() {
 	flag.Int64Var(&hourlyChartID, "hourly-chart-id", 0, "id of the chart for hourly update")
 
 	flag.StringVar(&dailySheetName, "daily-sheet-name", "", "name of the sheet for daily update")
-	flag.StringVar(&dailySummaryRange, "daily-summary-range", "", "range in columns for the daily summary")
+	flag.StringVar(&dailySummaryRange, "daily-summary-range", "", "range for the daily summary")
+	flag.StringVar(&weeklySummaryRange, "weekly-summary-range", "", "range for the weekly summary")
 	flag.Int64Var(&dailySheetID, "daily-sheet-id", 0, "id of the sheet for daily update")
 	flag.Int64Var(&dailyChartID, "daily-chart-id", 0, "id of the chart for daily update")
 
@@ -59,7 +61,8 @@ func main() {
 	if petitionName == "" || spreadsheetID == "" || currentValue == "" ||
 		hourlySheetName == "" || hourlySummaryRange == "" || sevenlySummaryRange == "" ||
 		hourlySheetID == 0 || hourlyChartID == 0 ||
-		dailySheetName == "" || dailySummaryRange == "" || dailySheetID == 0 || dailyChartID == 0 {
+		dailySheetName == "" || dailySummaryRange == "" || weeklySummaryRange == "" ||
+		dailySheetID == 0 || dailyChartID == 0 {
 		flag.PrintDefaults()
 		return
 	}
@@ -112,7 +115,7 @@ func main() {
 	}
 	valueRange = append(valueRange, vr)
 
-	dayRow, vrs, err := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
+	dayRow, vrs, err := computeDailyRanges(dailySheetName, dailySummaryRange, weeklySummaryRange, signature)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "computing daily ranges", err)
 		return
@@ -297,7 +300,7 @@ func rollingSummary(summaryRange, sheetName string, latestRow int64, step int) (
 }
 
 // computeDailyRanges computes the needed range to update the data about the daily chart and summary
-func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int64) (int64, []*sheets.ValueRange, error) {
+func computeDailyRanges(dailySheetName, dailySummaryRange, weeklySummaryRange string, signature int64) (int64, []*sheets.ValueRange, error) {
 	// Make sure we compute the number of day based UTC to avoid issues with daylight saving time.
 	// As the compute is done at midnight in the local time zone (CET/CEST) we need to manually create the right date,
 	// otherwise it can be converted to the previous day (using '.UTC()', or '.Truncate(24*time.Hour)'),
@@ -325,12 +328,12 @@ func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int6
 		return row, valueRange, nil
 	}
 
+	// daily summary
 	_, _, first, _, last, err := parseRange(dailySummaryRange)
 	if err != nil {
-		return 0, nil, fmt.Errorf("parsing range: %w", err)
+		return 0, nil, fmt.Errorf("parsing daily range: %w", err)
 	}
 
-	// summary
 	steps := last - first + 1
 	data := make([][]any, 0, steps)
 	for step := range steps {
@@ -341,6 +344,41 @@ func computeDailyRanges(dailySheetName, dailySummaryRange string, signature int6
 	}
 	valueRange = append(valueRange, &sheets.ValueRange{
 		Range:          dailySummaryRange,
+		MajorDimension: "ROWS",
+		Values:         data,
+	})
+
+	// weekly summary
+	weekDay := int64(time.Now().Weekday()) - 1
+	if weekDay < 0 {
+		// it's Sunday
+		weekDay = 6
+	}
+
+	current := fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, row, row-weekDay)
+
+	row -= weekDay + 1 // end of the previous week
+	next := fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, row, row-6)
+
+	_, _, first, _, last, err = parseRange(weeklySummaryRange)
+	if err != nil {
+		return 0, nil, fmt.Errorf("parsing range: %w", err)
+	}
+
+	steps = last - first + 1
+	data = make([][]any, 0, steps)
+	for range steps {
+		data = append(data, []any{
+			fmt.Sprintf("=%s", current),
+			fmt.Sprintf("=(%s)-(%s)", current, next),
+		})
+
+		row -= 7
+		current = next
+		next = fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, row, row-6)
+	}
+	valueRange = append(valueRange, &sheets.ValueRange{
+		Range:          weeklySummaryRange,
 		MajorDimension: "ROWS",
 		Values:         data,
 	})
