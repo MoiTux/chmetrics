@@ -29,6 +29,7 @@ func main() {
 
 	var hourlySheetName string
 	var hourlySummaryRange string
+	var sevenlySummaryRange string
 	var hourlySheetID int64
 	var hourlyChartID int64
 
@@ -44,7 +45,8 @@ func main() {
 	flag.StringVar(&currentValue, "current-value", "", "cell for the current value")
 
 	flag.StringVar(&hourlySheetName, "hourly-sheet-name", "", "name of the sheet for hourly update")
-	flag.StringVar(&hourlySummaryRange, "hourly-summary-range", "", "range in columns for the hourly summary")
+	flag.StringVar(&hourlySummaryRange, "hourly-summary-range", "", "range for the hourly summary")
+	flag.StringVar(&sevenlySummaryRange, "sevenly-summary-range", "", "range for the sevenly summary")
 	flag.Int64Var(&hourlySheetID, "hourly-sheet-id", 0, "id of the sheet for hourly update")
 	flag.Int64Var(&hourlyChartID, "hourly-chart-id", 0, "id of the chart for hourly update")
 
@@ -55,7 +57,8 @@ func main() {
 
 	flag.Parse()
 	if petitionName == "" || spreadsheetID == "" || currentValue == "" ||
-		hourlySheetName == "" || hourlySummaryRange == "" || hourlySheetID == 0 || hourlyChartID == 0 ||
+		hourlySheetName == "" || hourlySummaryRange == "" || sevenlySummaryRange == "" ||
+		hourlySheetID == 0 || hourlyChartID == 0 ||
 		dailySheetName == "" || dailySummaryRange == "" || dailySheetID == 0 || dailyChartID == 0 {
 		flag.PrintDefaults()
 		return
@@ -92,19 +95,29 @@ func main() {
 		},
 	}
 
-	hourRow, vr, err := computeHourlyRanges(hourlySheetName, hourlySummaryRange, signature, goal)
+	hourRow, vr := computeHourlyRanges(hourlySheetName, signature, goal)
+	valueRange = append(valueRange, vr)
+
+	vr, err = rollingSummary(hourlySummaryRange, hourlySheetName, hourRow, 6)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "computing hourly ranges", err)
+		fmt.Fprintln(os.Stderr, "getting hourly rolling summary", err)
 		return
 	}
-	valueRange = append(valueRange, vr...)
+	valueRange = append(valueRange, vr)
 
-	dayRow, vr, err := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
+	vr, err = rollingSummary(sevenlySummaryRange, hourlySheetName, hourRow, 7*24)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "getting weekly rolling summary", err)
+		return
+	}
+	valueRange = append(valueRange, vr)
+
+	dayRow, vrs, err := computeDailyRanges(dailySheetName, dailySummaryRange, signature)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "computing daily ranges", err)
 		return
 	}
-	valueRange = append(valueRange, vr...)
+	valueRange = append(valueRange, vrs...)
 
 	err = updateData(ctx, sheetsService, spreadsheetID, valueRange)
 	if err != nil {
@@ -223,53 +236,64 @@ func updateData(ctx context.Context, sheetsService *sheets.Service, spreadsheetI
 	return nil
 }
 
-// computeHourlyRanges computes the needed range to update the data about the hourly chart and summary
-func computeHourlyRanges(hourlySheetName, hourlySummaryRange string, signature, goal int64) (int64, []*sheets.ValueRange, error) {
+// computeHourlyRanges computes the needed range to update the data about the hourly chart
+func computeHourlyRanges(hourlySheetName string, signature, goal int64) (int64, *sheets.ValueRange) {
 	start := time.Date(2024, 4, 15, 3, 0, 0, 0, time.Local) // row 18
 	row := 18 + int64(time.Now().Sub(start).Hours())
 
-	valueRange := []*sheets.ValueRange{
-		// add new hourly value
-		{
-			Range:          fmt.Sprintf("%s!A%d:C%d", hourlySheetName, row, row),
-			MajorDimension: "ROWS",
-			Values: [][]any{
-				{
-					time.Now().Format("02-01-2006 15:04:05"),
-					signature,
-					goal,
-				},
+	return row, &sheets.ValueRange{
+		Range:          fmt.Sprintf("%s!A%d:C%d", hourlySheetName, row, row),
+		MajorDimension: "ROWS",
+		Values: [][]any{
+			{
+				time.Now().Format("02-01-2006 15:04:05"),
+				signature,
+				goal,
 			},
 		},
 	}
+}
 
-	_, _, first, _, last, err := parseRange(hourlySummaryRange)
+// rollingSummary generates a summary for the rolling period.
+// the period is define by hourlySummaryRange and step (in hours).
+func rollingSummary(summaryRange, sheetName string, latestRow int64, step int) (*sheets.ValueRange, error) {
+	_, _, first, _, last, err := parseRange(summaryRange)
 	if err != nil {
-		return 0, nil, fmt.Errorf("parsing range: %w", err)
+		return nil, fmt.Errorf("parsing range: %w", err)
 	}
 
-	// summary
-	hours := 6
 	// Sheet!B(row) - Sheet!B(row-hours)
-	current := fmt.Sprintf("'%s'!B%d-'%s'!B%d", hourlySheetName, row, hourlySheetName, row-int64(hours))
+	current := fmt.Sprintf("'%s'!B%d-'%s'!B%d", sheetName, latestRow, sheetName, latestRow-int64(step))
 	steps := last - first + 1
 	data := make([][]any, 0, steps)
+	var signatures bool
 	for range steps {
-		hours += hours
+		step += step
 		// Sheet!B(row) - Sheet!B(row-hours)
-		next := fmt.Sprintf("'%s'!B%d-'%s'!B%d", hourlySheetName, row, hourlySheetName, row-int64(hours))
-		data = append(data, []any{
+		next := fmt.Sprintf("'%s'!B%d-'%s'!B%d", sheetName, latestRow, sheetName, latestRow-int64(step))
+
+		values := []any{
 			fmt.Sprintf("=%s", current),
 			fmt.Sprintf("=2*(%s)-(%s)", current, next), // trend -> 2 * (current range) - (next range)
-		})
+		}
+
+		if latestRow-int64(step) < 0 {
+			if signatures {
+				values[0] = "-"
+			}
+			values[1] = "-"
+			signatures = true
+		}
+
+		data = append(data, values)
 		current = next
 	}
-	valueRange = append(valueRange, &sheets.ValueRange{
-		Range:          hourlySummaryRange,
+
+	return &sheets.ValueRange{
+		Range:          summaryRange,
 		MajorDimension: "ROWS",
 		Values:         data,
-	})
-	return row, valueRange, nil
+	}, nil
 }
 
 // computeDailyRanges computes the needed range to update the data about the daily chart and summary
