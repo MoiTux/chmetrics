@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -261,7 +260,7 @@ func computeHourlyRanges(hourlySheetName string, signature, goal int64) (int64, 
 // rollingSummary generates a summary for the rolling period.
 // the period is define by hourlySummaryRange and step (in hours).
 func rollingSummary(summaryRange, sheetName string, latestRow int64, step int) (*sheets.ValueRange, error) {
-	_, _, first, _, last, err := parseRange(summaryRange)
+	first, last, err := parseRange(summaryRange)
 	if err != nil {
 		return nil, fmt.Errorf("parsing range: %w", err)
 	}
@@ -330,7 +329,7 @@ func computeDailyRanges(dailySheetName, dailySummaryRange, weeklySummaryRange st
 	}
 
 	// daily summary
-	_, _, first, _, last, err := parseRange(dailySummaryRange)
+	first, last, err := parseRange(dailySummaryRange)
 	if err != nil {
 		return 0, nil, fmt.Errorf("parsing daily range: %w", err)
 	}
@@ -361,7 +360,7 @@ func computeDailyRanges(dailySheetName, dailySummaryRange, weeklySummaryRange st
 	row -= weekDay + 1 // end of the previous week
 	next := fmt.Sprintf("SUM('%s'!C%d:C%d)", dailySheetName, row, row-6)
 
-	_, _, first, _, last, err = parseRange(weeklySummaryRange)
+	first, last, err = parseRange(weeklySummaryRange)
 	if err != nil {
 		return 0, nil, fmt.Errorf("parsing range: %w", err)
 	}
@@ -404,43 +403,25 @@ var regexpRange = regexp.MustCompile("^(.*)!([a-zA-Z]+)([0-9]+):([a-zA-Z]+)([0-9
 
 // parseRange parse a range like: Chart!F28:G31
 // it returns:
-// - the name: Chart
-// - the first column: F
 // - the first row: 28
-// - the last column: G
 // - the last row: 31
-func parseRange(range_ string) (string, string, int64, string, int64, error) {
+func parseRange(range_ string) (int64, int64, error) {
 	parsed := regexpRange.FindStringSubmatch(range_)
 	if len(parsed) != 6 {
-		return "", "", 0, "", 0, fmt.Errorf("invalid range: %s", range_)
+		return 0, 0, fmt.Errorf("invalid range: %s", range_)
 	}
 
 	first_row, err := strconv.ParseInt(parsed[3], 10, 64)
 	if err != nil {
-		return "", "", 0, "", 0, fmt.Errorf("parsing str to int: %w", err)
+		return 0, 0, fmt.Errorf("parsing str to int: %w", err)
 	}
 
 	last_row, err := strconv.ParseInt(parsed[5], 10, 64)
 	if err != nil {
-		return "", "", 0, "", 0, fmt.Errorf("parsing str to int: %w", err)
+		return 0, 0, fmt.Errorf("parsing str to int: %w", err)
 	}
 
-	return parsed[1], parsed[2], first_row, parsed[3], last_row, nil
-}
-
-func computeNextColumn(column string) (string, error) {
-	if len(column) != 1 {
-		return "", errors.New("invalid column")
-	}
-
-	var c rune
-	for _, c = range column {
-	}
-
-	if c < 'A' || c >= 'Z' {
-		return "", errors.New("out of range")
-	}
-	return string(c + 1), nil
+	return first_row, last_row, nil
 }
 
 // UpdateHouryChart update the ChartID in the spreadsheetID with data from sheetID
