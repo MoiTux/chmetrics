@@ -57,12 +57,16 @@ func main() {
 	flag.Int64Var(&dailyChartID, "daily-chart-id", 0, "id of the chart for daily update")
 
 	flag.Parse()
-	if petitionName == "" || spreadsheetID == "" || currentValue == "" ||
-		hourlySheetName == "" || hourlySummaryRange == "" || sevenlySummaryRange == "" ||
-		hourlySheetID == 0 || hourlyChartID == 0 ||
-		dailySheetName == "" || dailySummaryRange == "" || weeklySummaryRange == "" ||
-		dailySheetID == 0 || dailyChartID == 0 {
-		flag.PrintDefaults()
+
+	ok := true
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Value.String() == f.DefValue {
+			fmt.Printf("Missing mandatory parameter: '%s'\n", f.Name)
+			ok = false
+		}
+	})
+
+	if !ok {
 		return
 	}
 
