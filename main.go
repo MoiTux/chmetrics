@@ -67,18 +67,19 @@ func main() {
 	})
 
 	if !ok {
-		return
+		os.Exit(1)
 	}
 
 	sheetsService, err := sheets.NewService(ctx)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "creating a new sheet services", err)
-		return
+		os.Exit(1)
 	}
 
 	// err = GetSheet(ctx, sheetsService, spreadsheetID)
 	// if err != nil {
 	// 	fmt.Fprintln(os.Stderr, "getting sheet", err)
+	// 	os.Exit(1)
 	// 	return
 	// }
 	// return
@@ -86,7 +87,7 @@ func main() {
 	signature, goal, err := GetMetrics(ctx, petitionName)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "getting metrics", err)
-		return
+		os.Exit(1)
 	}
 
 	valueRange := []*sheets.ValueRange{
@@ -108,28 +109,28 @@ func main() {
 	vr, err = rollingSummary(hourlySummaryRange, hourlySheetName, hourRow, 6)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "getting hourly rolling summary", err)
-		return
+		os.Exit(1)
 	}
 	valueRange = append(valueRange, vr)
 
 	vr, err = rollingSummary(sevenlySummaryRange, hourlySheetName, hourRow, 7*24)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "getting weekly rolling summary", err)
-		return
+		os.Exit(1)
 	}
 	valueRange = append(valueRange, vr)
 
 	dayRow, vrs, err := computeDailyRanges(dailySheetName, dailySummaryRange, weeklySummaryRange, signature)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "computing daily ranges", err)
-		return
+		os.Exit(1)
 	}
 	valueRange = append(valueRange, vrs...)
 
 	err = updateData(ctx, sheetsService, spreadsheetID, valueRange)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating data", err)
-		return
+		os.Exit(1)
 	}
 
 	// Add the new value to the chart, row is excluded but was computed on a one-based indexed,
@@ -137,7 +138,7 @@ func main() {
 	err = UpdateHouryChart(ctx, sheetsService, spreadsheetID, hourlyChartID, hourlySheetID, hourRow)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating sheet chart", err)
-		return
+		os.Exit(1)
 	}
 
 	if time.Now().Hour() != 0 {
@@ -150,7 +151,7 @@ func main() {
 	err = UpdateDailyChart(ctx, sheetsService, spreadsheetID, dailyChartID, dailySheetID, dayRow)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "updating daily chart", err)
-		return
+		os.Exit(1)
 	}
 }
 
